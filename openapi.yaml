@@ -1,0 +1,1046 @@
+openapi: 3.1.0
+info:
+  title: Resideo First Alert API
+  version: 1.0.0
+  description: |
+    Unofficial OpenAPI specification for the Resideo First Alert smart smoke/CO
+    detector cloud API, reverse-engineered from the official First Alert mobile
+    app (v2.25.2).
+
+    This API powers the First Alert Safe & Sound product line (e.g. SMCO600NVACA).
+    It provides device state polling, account/location management, an activity
+    feed, and real-time push notifications via SignalR.
+
+    **BLE-only commands:** The following device commands are only available via
+    direct Bluetooth Low Energy (OpenWeave protocol) and have no cloud API
+    equivalent:
+    - Self-test (`dev.flutter.pigeon.openweave.OpenWeaveHost.systemTest`)
+    - Hush/Silence (`dev.flutter.pigeon.openweave.OpenWeaveHost.hush`)
+    - Identify (chirp/flash LED)
+
+    These require a direct BLE connection to the device and authentication using
+    the `networkKey` from the device shadow's `CitadelSharedConfig`.
+  contact:
+    name: Zack Wagner
+    url: https://github.com/zackwag/pyresideo-firstalert
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.resideo.com
+    description: Main Resideo API
+  - url: https://login.resideo.com
+    description: Auth0 OAuth server
+  - url: https://ds-notification-service.prod.titans.cloud
+    description: SignalR real-time notification service
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Authentication
+    description: OAuth 2.0 token management via Auth0
+  - name: Accounts
+    description: Account, location, and device discovery
+  - name: Devices
+    description: Device state and status
+  - name: Activity
+    description: Activity feed / event history
+  - name: SignalR
+    description: Real-time push notification connection negotiation
+  - name: Geofence
+    description: Geofence endpoints (discovered, undocumented)
+
+paths:
+  /oauth/token:
+    post:
+      tags: [Authentication]
+      summary: Exchange or refresh OAuth tokens
+      description: |
+        Auth0 OAuth 2.0 token endpoint. Supports two grant types:
+        - `refresh_token`: Exchange a refresh token for a new access token.
+          Access tokens expire after 1 hour (3600 seconds). The server may
+          rotate the refresh token — always persist any new `refresh_token`
+          value returned.
+        - `authorization_code`: Exchange an authorization code (from PKCE flow)
+          for tokens.
+
+        This endpoint lives on the Auth0 domain (`login.resideo.com`), not the
+        main API server.
+      operationId: postOAuthToken
+      servers:
+        - url: https://login.resideo.com
+          description: Auth0 OAuth server
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/RefreshTokenRequest'
+                - $ref: '#/components/schemas/AuthorizationCodeRequest'
+      responses:
+        '200':
+          description: Tokens issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid refresh token or authorization code
+        '403':
+          description: |
+            Forbidden. May indicate a captcha challenge is required or the
+            refresh token has been revoked.
+
+  /ris-public-api/api/v1/accounts:
+    get:
+      tags: [Accounts]
+      summary: Get account information
+      description: |
+        Returns the authenticated user's account information including all
+        consumer accounts, locations, and devices. This is the primary
+        discovery endpoint — use it to enumerate device IDs for subsequent
+        state queries.
+
+        The response uses base64-encoded GraphQL-style node IDs for most
+        entity identifiers. The `deviceId` field within each device object
+        is the plain-text hardware identifier used by other endpoints.
+      operationId: getAccounts
+      servers:
+        - url: https://api.resideo.com
+      responses:
+        '200':
+          description: Account information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '401':
+          description: Access token expired or invalid
+
+  /ris-public-api/api/v2/devices/smokeDetectors/{deviceId}/state:
+    get:
+      tags: [Devices]
+      summary: Get full device state
+      description: |
+        Returns the complete state of a smoke/CO detector, including alarm
+        states, device configuration, firmware versions, fault flags, and
+        connectivity status.
+
+        The response contains a `deviceState` object with `desired` and
+        `reported` sub-objects (following the AWS IoT device shadow pattern).
+        The `reported` state reflects what the device has actually reported;
+        `desired` represents pending configuration changes.
+
+        Each alarm state sub-object includes:
+        - `deviceState`: The current state value (enum varies by alarm type)
+        - `eventSource`: Where the event originated (`self`, `node`, `remote`)
+        - `tStampEpoch`: Unix epoch timestamp of the last state change
+      operationId: getDeviceState
+      servers:
+        - url: https://api.resideo.com
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          description: |
+            The hardware device ID (e.g. "XXXXXXXXXXXX"). This is the
+            `deviceId` field from the accounts endpoint, not the base64
+            node ID.
+          schema:
+            type: string
+            example: XXXXXXXXXXXX
+      responses:
+        '200':
+          description: Device state retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStateResponse'
+        '401':
+          description: Access token expired or invalid
+        '404':
+          description: Device not found
+
+  /ds-activity-feed-api/api/v1/app/events:
+    get:
+      tags: [Activity]
+      summary: Get activity feed events
+      description: |
+        Retrieves the event/activity history for a specific device. Returns
+        events such as alarm activations, connectivity changes, and test
+        results.
+
+        Note: The API documentation may reference a POST variant, but the
+        actual implementation uses GET with query parameters.
+      operationId: getActivityFeed
+      servers:
+        - url: https://api.resideo.com
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          description: The hardware device ID to retrieve events for
+          schema:
+            type: string
+            example: XXXXXXXXXXXX
+        - name: PageSize
+          in: query
+          required: false
+          description: Number of events to return per page
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            example: 50
+        - name: startDate
+          in: query
+          required: false
+          description: |
+            ISO 8601 date-time to filter events from. Only events after this
+            timestamp are returned.
+          schema:
+            type: string
+            format: date-time
+            example: "2025-01-01T00:00:00Z"
+      responses:
+        '200':
+          description: Activity feed events retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityFeedResponse'
+        '401':
+          description: Access token expired or invalid
+
+  /Hub/negotiate:
+    post:
+      tags: [SignalR]
+      summary: Negotiate SignalR connection
+      description: |
+        Initiates a SignalR connection negotiation. Returns a connection ID
+        and available transports for establishing a real-time WebSocket
+        connection.
+
+        **Connection flow:**
+        1. POST `/Hub/negotiate?negotiateVersion=1` with Bearer token
+        2. Open WebSocket to `wss://ds-notification-service.prod.titans.cloud/Hub/?id={connectionId}`
+        3. Send handshake: `{"protocol":"json","version":1}\x1e`
+        4. Wait for empty `{}\x1e` response
+        5. Subscribe: `{"type":1,"target":"SubscribeSignalRV2","arguments":[["DEVICE_ID_1"]]}\x1e`
+        6. Listen for type 1 (invocation), type 6 (ping), type 7 (close) messages
+
+        All SignalR messages are JSON terminated by ASCII record separator (0x1E).
+      operationId: negotiateSignalR
+      servers:
+        - url: https://ds-notification-service.prod.titans.cloud
+          description: SignalR real-time notification service
+      parameters:
+        - name: negotiateVersion
+          in: query
+          required: false
+          description: SignalR negotiation protocol version
+          schema:
+            type: integer
+            default: 1
+            example: 1
+      responses:
+        '200':
+          description: Negotiation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalRNegotiateResponse'
+        '401':
+          description: Access token expired or invalid
+
+  /ris-public-api/api/v1/geofence:
+    get:
+      tags: [Geofence]
+      summary: Get geofence information
+      description: |
+        Discovered endpoint. Its exact response schema is undocumented.
+        Likely related to location-based automation or presence detection
+        features in the Resideo ecosystem.
+      operationId: getGeofence
+      servers:
+        - url: https://api.resideo.com
+      responses:
+        '200':
+          description: Geofence information retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response schema unknown — endpoint discovered but not fully documented.
+        '401':
+          description: Access token expired or invalid
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OAuth 2.0 Bearer token obtained from the Auth0 token endpoint
+        (`POST https://login.resideo.com/oauth/token`). Access tokens expire
+        after 1 hour. Use the refresh token to obtain new access tokens.
+
+        OAuth configuration:
+        - Client ID: `SRmiA7CaYi1JgivDZdzzoZu4X5VBogGt` (public PKCE client)
+        - Audience: `https://resideo-prod.auth0.com/api/v2/`
+        - Scopes: `openid profile email offline_access`
+
+  schemas:
+    RefreshTokenRequest:
+      type: object
+      required: [grant_type, refresh_token, client_id]
+      properties:
+        grant_type:
+          type: string
+          const: refresh_token
+          description: Must be "refresh_token"
+        refresh_token:
+          type: string
+          description: The refresh token from a previous authentication
+        client_id:
+          type: string
+          description: Public PKCE client identifier
+          example: SRmiA7CaYi1JgivDZdzzoZu4X5VBogGt
+
+    AuthorizationCodeRequest:
+      type: object
+      required: [grant_type, code, client_id, redirect_uri, code_verifier]
+      properties:
+        grant_type:
+          type: string
+          const: authorization_code
+          description: Must be "authorization_code"
+        code:
+          type: string
+          description: Authorization code from the PKCE flow
+        client_id:
+          type: string
+          description: Public PKCE client identifier
+          example: SRmiA7CaYi1JgivDZdzzoZu4X5VBogGt
+        redirect_uri:
+          type: string
+          format: uri
+          description: Redirect URI that was used in the authorization request
+        code_verifier:
+          type: string
+          description: PKCE code verifier that corresponds to the code_challenge sent in the authorization request
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT access token for authenticating API requests
+        id_token:
+          type: string
+          description: OpenID Connect ID token (JWT) containing user identity claims
+        refresh_token:
+          type: string
+          description: |
+            New refresh token. Auth0 may rotate refresh tokens — if this field
+            is present and differs from the token you sent, you must persist
+            the new value. The old token may be invalidated.
+        scope:
+          type: string
+          description: Space-separated list of granted scopes
+          example: openid profile email offline_access
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds (typically 3600 = 1 hour)
+          example: 3600
+        token_type:
+          type: string
+          description: Token type, always "Bearer"
+          example: Bearer
+
+    AccountResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/AccountData'
+        errors:
+          type: array
+          items:
+            type: object
+          description: Array of error objects; empty on success
+      required: [data, errors]
+
+    AccountData:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Base64-encoded user node ID
+          example: VXNlcjow...
+        firstName:
+          type: string
+          example: John
+        lastName:
+          type: string
+          example: Doe
+        contactEmail:
+          type: string
+          format: email
+          example: user@example.com
+        countryCode:
+          type: string
+          description: ISO 3166-1 alpha-2 country code
+          example: US
+        locale:
+          type: string
+          description: User locale
+          example: en_US
+        consumerUsers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerUser'
+
+    ConsumerUser:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Base64-encoded consumer user node ID
+          example: Q29uc3VtZXJVc2VyOj...
+        role:
+          type: string
+          description: User role in the consumer account
+          enum: [ADMIN]
+          example: ADMIN
+        consumerAccount:
+          $ref: '#/components/schemas/ConsumerAccount'
+
+    ConsumerAccount:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Base64-encoded consumer account node ID
+          example: Q29uc3VtZXJBY2NvdW50Oj...
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+
+    Location:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Base64-encoded location node ID
+          example: Q29uc3VtZXJEZXZpY2VMb2NhdGlvbjo...
+        name:
+          type: string
+          description: User-assigned location name
+          example: Home
+        address:
+          $ref: '#/components/schemas/Address'
+        geoCoordinate:
+          $ref: '#/components/schemas/GeoCoordinate'
+        consumerDevices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerDevice'
+
+    Address:
+      type: object
+      properties:
+        addressLine1:
+          type: string
+          example: 123 Main St
+        city:
+          type: string
+          example: Anytown
+        stateProvinceRegionCode:
+          type: string
+          example: CA
+        zipPostalCode:
+          type: string
+          example: "90210"
+        countryCode:
+          type: string
+          example: US
+
+    GeoCoordinate:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 34.0901
+        longitude:
+          type: number
+          format: double
+          example: -118.4065
+
+    ConsumerDevice:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Base64-encoded consumer device node ID
+          example: Q29uc3VtZXJEZXZpY2U6...
+        name:
+          type: string
+          description: User-assigned device name
+          example: Living Room Detector
+        device:
+          $ref: '#/components/schemas/DeviceRef'
+
+    DeviceRef:
+      type: object
+      description: Hardware device reference within the consumer device wrapper
+      properties:
+        id:
+          type: string
+          description: Base64-encoded device node ID
+          example: THlyaWNUaGVybW9zdGF0RGV2aWNlOj...
+        deviceId:
+          type: string
+          description: |
+            Plain-text hardware device identifier. This is the ID used by the
+            device state endpoint and activity feed.
+          example: XXXXXXXXXXXX
+        globalDeviceType:
+          type: string
+          description: Device model/type identifier
+          enum: [Citadel_SC5]
+          example: Citadel_SC5
+
+    DeviceStateResponse:
+      type: object
+      description: Full device state response from the v2 state endpoint
+      properties:
+        name:
+          type: string
+          description: Device hardware ID (same as deviceId)
+          example: XXXXXXXXXXXX
+        deviceType:
+          type: string
+          description: Device type classification
+          example: SmokeDetector
+        sku:
+          type: string
+          description: Device SKU / model number
+          example: SMCO600NVACA
+        registrationStatus:
+          type: string
+          description: Device registration status
+          enum: [Registered]
+          example: Registered
+        isOnline:
+          type: boolean
+          description: Whether the device is currently connected to the cloud
+        isSupervisionHealthy:
+          type: boolean
+          description: Whether the device supervision check is healthy
+        isOnlineComputed:
+          type: boolean
+          description: Computed online status (may differ from isOnline during transitions)
+        dataSyncState:
+          type: string
+          description: Current data synchronization state
+          enum: [Completed]
+          example: Completed
+        registrationDate:
+          type: string
+          format: date-time
+          description: When the device was first registered
+          example: "2025-12-18T03:22:17.457+00:00"
+        lastMessageReceivedTime:
+          type: string
+          format: date-time
+          description: Timestamp of the most recent message from the device
+          example: "2025-12-20T17:02:30.861+00:00"
+        lastFirmwareUpdateTime:
+          type: string
+          format: date-time
+          description: Timestamp of the most recent firmware update
+          example: "2025-12-18T03:22:45.412+00:00"
+        deviceState:
+          $ref: '#/components/schemas/DeviceShadow'
+
+    DeviceShadow:
+      type: object
+      description: |
+        AWS IoT-style device shadow with desired and reported states.
+        The `reported` state is what the device has actually communicated;
+        `desired` represents pending configuration changes pushed from the cloud.
+      properties:
+        desired:
+          type: object
+          description: Desired device state (pending configuration changes)
+        reported:
+          $ref: '#/components/schemas/ReportedState'
+
+    ReportedState:
+      type: object
+      description: The device's self-reported current state
+      properties:
+        alarmState:
+          $ref: '#/components/schemas/AlarmState'
+        deviceConfig:
+          $ref: '#/components/schemas/DeviceConfig'
+        deviceInfo:
+          $ref: '#/components/schemas/DeviceInfo'
+        deviceStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+        deviceStatusFlags:
+          $ref: '#/components/schemas/DeviceStatusFlags'
+
+    AlarmState:
+      type: object
+      description: |
+        Collection of alarm state sub-objects. Each sub-object reports the
+        current state, the event source, and the Unix epoch timestamp of
+        the last state change.
+      properties:
+        smoke:
+          $ref: '#/components/schemas/SmokeAlarmState'
+        co:
+          $ref: '#/components/schemas/CoAlarmState'
+        battery:
+          $ref: '#/components/schemas/BatteryAlarmState'
+        power:
+          $ref: '#/components/schemas/PowerAlarmState'
+        malfunction:
+          $ref: '#/components/schemas/MalfunctionAlarmState'
+        test:
+          $ref: '#/components/schemas/TestAlarmState'
+        silence:
+          $ref: '#/components/schemas/SilenceAlarmState'
+        eol:
+          $ref: '#/components/schemas/EolAlarmState'
+
+    EventSource:
+      type: string
+      description: |
+        Origin of the alarm event:
+        - `self`: Event originated from this device's own sensors
+        - `node`: Event relayed from a mesh network node
+        - `remote`: Event from a remote interconnected device
+      enum: [self, node, remote]
+
+    SmokeAlarmState:
+      type: object
+      description: Smoke detection alarm state
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247701
+        deviceState:
+          type: string
+          description: |
+            Current smoke alarm state:
+            - `idle`: Normal, no smoke detected
+            - `alarm`: Smoke alarm active (legacy/generic)
+            - `smokeAlarm`: Smoke alarm active
+            - `smokeEarlyWarning`: Smoke early warning (below alarm threshold)
+            - `smokeInterconnectAlarm`: Smoke alarm triggered by interconnected device
+            - `smokeEarlyWarningInterconnectAlarm`: Smoke early warning from interconnected device
+          enum:
+            - idle
+            - alarm
+            - smokeAlarm
+            - smokeEarlyWarning
+            - smokeInterconnectAlarm
+            - smokeEarlyWarningInterconnectAlarm
+
+    CoAlarmState:
+      type: object
+      description: Carbon monoxide detection alarm state
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247701
+        deviceState:
+          type: string
+          description: |
+            Current CO alarm state:
+            - `idle`: Normal, no CO detected
+            - `alarm`: CO alarm active (legacy/generic)
+            - `coAlarm`: CO alarm active
+            - `coEarlyWarning`: CO early warning (below alarm threshold)
+            - `carbonMonoxideAlarm`: CO alarm active (alternate key)
+            - `carbonMonoxideEarlyWarning`: CO early warning (alternate key)
+            - `carbonMonoxideInterconnectAlarm`: CO alarm from interconnected device
+            - `carbonMonoxideEarlyWarningInterconnectAlarm`: CO early warning from interconnected device
+          enum:
+            - idle
+            - alarm
+            - coAlarm
+            - coEarlyWarning
+            - carbonMonoxideAlarm
+            - carbonMonoxideEarlyWarning
+            - carbonMonoxideInterconnectAlarm
+            - carbonMonoxideEarlyWarningInterconnectAlarm
+
+    BatteryAlarmState:
+      type: object
+      description: |
+        Battery health state. This reports the battery's condition independent
+        of what power source is currently active — a device on AC mains still
+        monitors its backup battery and reports its health here.
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247701
+        deviceState:
+          type: string
+          description: |
+            Current battery health:
+            - `good`: Battery healthy
+            - `low`: Battery low
+            - `replace`: Battery needs replacement
+            - `critical`: Battery critically low
+          enum: [good, low, replace, critical]
+
+    PowerAlarmState:
+      type: object
+      description: |
+        Power source state. This classifies the type of electrical current
+        powering the device, not "battery vs. plugged in" — it is a different
+        axis from `battery` (which reports battery presence/health regardless
+        of what is currently powering the device).
+
+        The API also reports transitional states during power switchovers.
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766029736
+        deviceState:
+          type: string
+          description: |
+            Current power source:
+            - `ac`: Hardwired into 120V AC mains
+            - `dc`: Powered by DC current. For battery-only installations (e.g.
+              SMCO600NVACA), the device reports "dc" since a battery is itself a
+              DC source. The official app shows this as "Power Source: DC"
+              alongside a separate "Battery Status: Good".
+            - `battery`: Present in earlier reverse-engineering notes as an
+              assumed value, but not confirmed on any device tested. Every
+              battery-powered detector observed reports `dc`. Kept as a valid
+              enum option in case some device/model does return it.
+            - `acOnly`: AC-only mode (no battery backup)
+            - `acToDc`: Transitioning from AC to DC (AC just lost)
+            - `dcToAc`: Transitioning from DC to AC (AC restoring)
+            - `acLoss`: AC power lost
+            - `acRestored`: AC power restored
+          enum: [ac, dc, battery, acOnly, acToDc, dcToAc, acLoss, acRestored]
+
+    MalfunctionAlarmState:
+      type: object
+      description: Device malfunction state
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247701
+        deviceState:
+          type: string
+          description: |
+            Current malfunction state:
+            - `none`: No malfunction detected
+            - Other values indicate a device malfunction
+          enum: [none]
+
+    TestAlarmState:
+      type: object
+      description: Self-test state
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766034736
+        deviceState:
+          type: string
+          description: |
+            Current test state:
+            - `idle`: Not in test mode
+            - `testing`: Self-test in progress
+          enum: [idle, testing]
+
+    SilenceAlarmState:
+      type: object
+      description: Alarm silence state
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247701
+        deviceState:
+          type: string
+          description: |
+            Current silence state:
+            - `not_silenced`: Alarm is not silenced
+            - `silenced`: Alarm has been temporarily silenced
+          enum: [not_silenced, silenced]
+
+    EolAlarmState:
+      type: object
+      description: End-of-life state for the device
+      properties:
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        tStampEpoch:
+          type: integer
+          description: Unix epoch timestamp of the last state change
+          example: 1766247704
+        deviceState:
+          type: string
+          description: |
+            Current end-of-life state:
+            - `no`: Device is not at end of life
+            - `yes`: Device has reached end of life and should be replaced
+            - `eolWarning`: Device is approaching end of life
+            - `expired`: Device is past end of life
+          enum: [no, yes, eolWarning, expired]
+
+    DeviceConfig:
+      type: object
+      description: Device configuration settings
+      properties:
+        language:
+          type: string
+          description: Device language/locale setting
+          example: en_US
+        room:
+          type: integer
+          description: Room type identifier (numeric code for the room where the device is installed)
+          example: 14
+        debugLevel:
+          type: string
+          description: Debug logging level configured on the device
+          example: error
+        earlyWarning:
+          type: boolean
+          description: Whether early warning alerts are enabled for smoke and CO detection
+          example: true
+
+    DeviceInfo:
+      type: object
+      description: Hardware and firmware version information
+      properties:
+        hwVerE2C:
+          type: string
+          description: E2C (edge-to-cloud) hardware version
+          example: "1.0.0"
+        hwVerExecCore:
+          type: string
+          description: Execution core hardware version
+          example: "1.0.0"
+        hwVerSensorCore:
+          type: string
+          description: Sensor core hardware version
+          example: "1.0.0"
+        fwVerE2C:
+          type: string
+          description: E2C (edge-to-cloud) firmware version — used as the primary firmware version
+          example: "00.07.72.00"
+        fwVerExecCore:
+          type: string
+          description: Execution core firmware version
+          example: "01.06.38"
+        fwVerSensorCore:
+          type: string
+          description: Sensor core firmware version
+          example: "11.00"
+        voiceFileVer:
+          type: string
+          description: Voice announcement file version
+          example: "1.0.0"
+        runningHrs:
+          type: integer
+          description: Total running hours since installation
+          example: 0
+
+    DeviceStatus:
+      type: object
+      description: Network connectivity status
+      properties:
+        rssi:
+          type: integer
+          description: WiFi received signal strength indicator in dBm
+          example: -30
+        ssid:
+          type: string
+          description: Name of the WiFi network the device is connected to
+          example: WiFiNetwork
+
+    DeviceStatusFlags:
+      type: object
+      description: |
+        Hardware fault flags. When any flag is true, the device has a hardware
+        malfunction in the corresponding subsystem. These are used to create
+        repair/issue entries in Home Assistant.
+      properties:
+        fault:
+          type: boolean
+          description: General fault detected
+          example: false
+        e2Fault:
+          type: boolean
+          description: E2C (edge-to-cloud) communication fault
+          example: false
+        photoFault:
+          type: boolean
+          description: Photoelectric smoke sensor fault
+          example: false
+        driftMalfunction:
+          type: boolean
+          description: Sensor drift/calibration malfunction
+          example: false
+        coFault:
+          type: boolean
+          description: CO sensor fault
+          example: false
+        temperatureFault:
+          type: boolean
+          description: Temperature sensor fault
+          example: false
+        voiceFault:
+          type: boolean
+          description: Voice announcement module fault
+          example: false
+        radioFault:
+          type: boolean
+          description: Radio/wireless communication fault
+          example: false
+
+    ActivityFeedResponse:
+      description: |
+        Activity feed response. The API may return either a bare JSON array of
+        events or an object with an `events` key containing the array. The
+        client handles both formats.
+      oneOf:
+        - type: array
+          items:
+            $ref: '#/components/schemas/ActivityEvent'
+        - type: object
+          properties:
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/ActivityEvent'
+
+    ActivityEvent:
+      type: object
+      description: A single activity feed event
+      properties:
+        eventId:
+          type: string
+          description: Unique event identifier
+        deviceId:
+          type: string
+          description: Hardware device ID the event relates to
+        eventType:
+          type: string
+          description: Type of event (e.g. alarm activation, connectivity change)
+        eventSource:
+          $ref: '#/components/schemas/EventSource'
+        timestamp:
+          type: string
+          format: date-time
+          description: When the event occurred
+        details:
+          type: object
+          description: Event-specific detail payload
+
+    SignalRNegotiateResponse:
+      type: object
+      description: |
+        SignalR connection negotiation response. Contains the connection ID
+        needed to establish the WebSocket connection and the list of available
+        transport methods.
+      properties:
+        connectionId:
+          type: string
+          description: |
+            Unique connection identifier. Use this as the `id` query parameter
+            when opening the WebSocket connection to
+            `wss://ds-notification-service.prod.titans.cloud/Hub/?id={connectionId}`
+        connectionToken:
+          type: string
+          description: Connection authentication token
+        negotiateVersion:
+          type: integer
+          description: Negotiation protocol version
+          example: 1
+        availableTransports:
+          type: array
+          description: Available transport methods for the connection
+          items:
+            $ref: '#/components/schemas/SignalRTransport'
+
+    SignalRTransport:
+      type: object
+      description: A SignalR transport method
+      properties:
+        transport:
+          type: string
+          description: Transport name
+          enum: [WebSockets, ServerSentEvents, LongPolling]
+        transferFormats:
+          type: array
+          description: Supported data formats for this transport
+          items:
+            type: string
+            enum: [Text, Binary]
+
+    SignalRMessage:
+      type: object
+      description: |
+        SignalR message format. All messages are JSON terminated by ASCII
+        record separator (0x1E). Used for both client-to-server and
+        server-to-client communication.
+      properties:
+        type:
+          type: integer
+          description: |
+            Message type:
+            - `1`: Invocation (server calling a client method, or client invoking server method)
+            - `6`: Ping/Pong (keepalive)
+            - `7`: Close (connection termination)
+          enum: [1, 6, 7]
+        target:
+          type: string
+          description: |
+            Target method name. For subscriptions, use "SubscribeSignalRV2".
+            Only present for type 1 (invocation) messages.
+          example: SubscribeSignalRV2
+        arguments:
+          type: array
+          description: |
+            Method arguments. For SubscribeSignalRV2, this is a single-element
+            array containing an array of device IDs to subscribe to.
+            Only present for type 1 (invocation) messages.
+          items: {}
+          example: [["DEVICE_ID_1", "DEVICE_ID_2"]]
