@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyresideo-firstalert"
+version = "1.0.0"
+description = "Async Python client for the Resideo First Alert smart smoke/CO detector API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Zack Wagner", email = "zack@zackwag.com" },
+]
+keywords = ["resideo", "first-alert", "smoke-detector", "iot", "home-automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Framework :: AsyncIO",
+]
+dependencies = [
+    "aiohttp>=3.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/zackwag/pyresideo-firstalert"
+Repository = "https://github.com/zackwag/pyresideo-firstalert"
+Issues = "https://github.com/zackwag/pyresideo-firstalert/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/resideo_firstalert_api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
