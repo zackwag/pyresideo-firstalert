@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 
 import aiohttp
@@ -9,18 +10,21 @@ import pytest
 from aioresponses import aioresponses
 from resideo_firstalert_api.api import (
     ResideoApiClient,
+    ResideoApiError,
     ResideoAuthError,
     ResideoConnectionError,
 )
 from resideo_firstalert_api.const import (
     ALARM_STATE_ALARM,
     API_ACCOUNTS_ENDPOINT,
+    API_ACTIVITY_FEED_URL,
     API_BASE_URL,
     API_DEVICE_STATE_ENDPOINT,
     OAUTH_TOKEN_URL,
 )
 
 ACCOUNTS_URL = f"{API_BASE_URL}{API_ACCOUNTS_ENDPOINT}"
+ACTIVITY_FEED_PATTERN = re.compile(re.escape(API_ACTIVITY_FEED_URL) + r"(\?.*)?$")
 
 
 def _device_state_url(device_id: str) -> str:
@@ -347,3 +351,296 @@ async def test_get_all_device_states_skips_device_with_non_auth_error(
 
     assert list(states) == ["DEVICE2"]
     assert "DEVICE1" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# 1. _ensure_token reuses a valid token without refreshing
+# ---------------------------------------------------------------------------
+async def test_ensure_token_reuses_valid_token(session) -> None:
+    """A non-expired token is returned without hitting the network."""
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "still-valid"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    # No aioresponses context -- any real HTTP would raise.
+    token = await client._ensure_token()
+    assert token == "still-valid"
+
+
+# ---------------------------------------------------------------------------
+# 2. _ensure_token refreshes when token is expired
+# ---------------------------------------------------------------------------
+async def test_ensure_token_refreshes_expired_token(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "stale"
+    client._token_expiry = datetime.now() - timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, payload=_token_response(access_token="fresh"))
+        token = await client._ensure_token()
+
+    assert token == "fresh"
+
+
+# ---------------------------------------------------------------------------
+# 3. _request retries on 401 then succeeds on second attempt
+# ---------------------------------------------------------------------------
+async def test_request_retries_on_401_then_succeeds(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "old-token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        # First attempt returns 401, triggering a refresh+retry.
+        m.get(ACCOUNTS_URL, status=401)
+        m.post(OAUTH_TOKEN_URL, payload=_token_response(access_token="new-token"))
+        m.get(ACCOUNTS_URL, payload={"ok": True})
+
+        result = await client._request("GET", API_ACCOUNTS_ENDPOINT)
+
+    assert result == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 4. _request raises ResideoApiError on non-200/non-401 status
+# ---------------------------------------------------------------------------
+async def test_request_raises_api_error_on_non_200(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.get(ACCOUNTS_URL, status=500, body="server error")
+        with pytest.raises(ResideoApiError, match="500"):
+            await client._request("GET", API_ACCOUNTS_ENDPOINT)
+
+
+# ---------------------------------------------------------------------------
+# 5. _request raises ResideoConnectionError on aiohttp.ClientError
+# ---------------------------------------------------------------------------
+async def test_request_raises_connection_error_on_client_error(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.get(ACCOUNTS_URL, exception=aiohttp.ClientConnectionError("gone"))
+        with pytest.raises(ResideoConnectionError):
+            await client._request("GET", API_ACCOUNTS_ENDPOINT)
+
+
+# ---------------------------------------------------------------------------
+# 6. get_device_state returns raw response dict
+# ---------------------------------------------------------------------------
+async def test_get_device_state_returns_raw_dict(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    raw = _device_state_response(device_id="DEV1")
+    with aioresponses() as m:
+        m.get(_device_state_url("DEV1"), payload=raw)
+        result = await client.get_device_state("DEV1")
+
+    assert result == raw
+
+
+# ---------------------------------------------------------------------------
+# 7. get_accounts returns raw response dict
+# ---------------------------------------------------------------------------
+async def test_get_accounts_returns_raw_dict(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    payload = _accounts_response([_consumer_device("D1")])
+    with aioresponses() as m:
+        m.get(ACCOUNTS_URL, payload=payload)
+        result = await client.get_accounts()
+
+    assert result == payload
+
+
+# ---------------------------------------------------------------------------
+# 8. get_activity_feed returns list when API returns a list
+# ---------------------------------------------------------------------------
+async def test_get_activity_feed_returns_list(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    events = [{"id": "evt1"}, {"id": "evt2"}]
+    with aioresponses() as m:
+        m.get(ACTIVITY_FEED_PATTERN, payload=events)
+        result = await client.get_activity_feed("DEV1")
+
+    assert result == events
+
+
+# ---------------------------------------------------------------------------
+# 9. get_activity_feed extracts events when API returns dict with "events"
+# ---------------------------------------------------------------------------
+async def test_get_activity_feed_extracts_events_from_dict(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    events = [{"id": "evt1"}]
+    with aioresponses() as m:
+        m.get(ACTIVITY_FEED_PATTERN, payload={"events": events, "total": 1})
+        result = await client.get_activity_feed("DEV1")
+
+    assert result == events
+
+
+# ---------------------------------------------------------------------------
+# 10. get_activity_feed returns empty list on non-200 status
+# ---------------------------------------------------------------------------
+async def test_get_activity_feed_returns_empty_on_non_200(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.get(ACTIVITY_FEED_PATTERN, status=500)
+        result = await client.get_activity_feed("DEV1")
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# 11. get_activity_feed returns empty list on connection error
+# ---------------------------------------------------------------------------
+async def test_get_activity_feed_returns_empty_on_connection_error(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.get(ACTIVITY_FEED_PATTERN, exception=aiohttp.ClientConnectionError("fail"))
+        result = await client.get_activity_feed("DEV1")
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# 12. get_activity_feed retries on 401
+# ---------------------------------------------------------------------------
+async def test_get_activity_feed_retries_on_401(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "old-token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    events = [{"id": "evt-retry"}]
+    with aioresponses() as m:
+        m.get(ACTIVITY_FEED_PATTERN, status=401)
+        m.post(OAUTH_TOKEN_URL, payload=_token_response(access_token="new-token"))
+        m.get(ACTIVITY_FEED_PATTERN, payload=events)
+        result = await client.get_activity_feed("DEV1")
+
+    assert result == events
+
+
+# ---------------------------------------------------------------------------
+# 13. _parse_device_state parses fault flags correctly (some set to True)
+# ---------------------------------------------------------------------------
+async def test_parse_device_state_fault_flags(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    raw = _device_state_response()
+    # Flip a few fault flags to True.
+    flags = raw["deviceState"]["reported"]["deviceStatusFlags"]
+    flags["fault"] = True
+    flags["coFault"] = True
+    flags["radioFault"] = True
+
+    state = client._parse_device_state(raw, {"device_id": "DEVICE1"})
+
+    assert state.fault is True
+    assert state.co_fault is True
+    assert state.radio_fault is True
+    # The rest should remain False.
+    assert state.e2_fault is False
+    assert state.photo_fault is False
+    assert state.drift_malfunction is False
+    assert state.temperature_fault is False
+    assert state.voice_fault is False
+
+
+# ---------------------------------------------------------------------------
+# 14. _parse_device_state parses firmware/hardware versions
+# ---------------------------------------------------------------------------
+async def test_parse_device_state_firmware_hardware_versions(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    raw = _device_state_response()
+    state = client._parse_device_state(raw, {"device_id": "DEVICE1"})
+
+    assert state.firmware_version == "00.07.72.00"
+    assert state.fw_ver_exec_core == "01.06.38"
+    assert state.fw_ver_sensor_core == "11.00"
+    assert state.hw_ver_e2c == "1.0.0"
+    assert state.hw_ver_exec_core == "1.0.0"
+    assert state.hw_ver_sensor_core == "1.0.0"
+    assert state.voice_file_ver == "1.0.0"
+    assert state.running_hours == 0
+
+
+# ---------------------------------------------------------------------------
+# 15. _parse_device_state handles completely empty reported section
+# ---------------------------------------------------------------------------
+async def test_parse_device_state_empty_reported(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    raw = {
+        "name": "EMPTY",
+        "deviceType": "SmokeDetector",
+        "deviceState": {"desired": {}, "reported": {}},
+    }
+    state = client._parse_device_state(raw, {"device_id": "EMPTY", "name": "Empty"})
+
+    assert state.device_id == "EMPTY"
+    assert state.name == "Empty"
+    assert state.smoke_state == "unknown"
+    assert state.co_state == "unknown"
+    assert state.battery_state == "unknown"
+    assert state.rssi is None
+    assert state.ssid is None
+    assert state.firmware_version is None
+    assert state.fault is False
+    assert state.early_warning is None
+    assert state.room is None
+
+
+# ---------------------------------------------------------------------------
+# 16. get_devices handles empty account (no consumerUsers)
+# ---------------------------------------------------------------------------
+async def test_get_devices_empty_account(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    client._access_token = "token"
+    client._token_expiry = datetime.now() + timedelta(hours=1)
+
+    with aioresponses() as m:
+        m.get(ACCOUNTS_URL, payload={"data": {"id": "user-123"}, "errors": []})
+        devices = await client.get_devices()
+
+    assert devices == []
+
+
+# ---------------------------------------------------------------------------
+# 17. _refresh_access_token raises ResideoAuthError on 403
+# ---------------------------------------------------------------------------
+async def test_refresh_access_token_403_raises_auth_error(session) -> None:
+    client = ResideoApiClient(session, "bad-refresh-token")
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, status=403)
+        with pytest.raises(ResideoAuthError):
+            await client._refresh_access_token()
+
+
+# ---------------------------------------------------------------------------
+# 18. _refresh_access_token raises ResideoApiError on 500
+# ---------------------------------------------------------------------------
+async def test_refresh_access_token_500_raises_api_error(session) -> None:
+    client = ResideoApiClient(session, "refresh-token")
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, status=500)
+        with pytest.raises(ResideoApiError, match="500"):
+            await client._refresh_access_token()
