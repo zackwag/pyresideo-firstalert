@@ -4,6 +4,9 @@
 [![Tests](https://github.com/zackwag/pyresideo-firstalert/actions/workflows/test.yml/badge.svg)](https://github.com/zackwag/pyresideo-firstalert/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+> [!WARNING]
+> **This project is no longer actively maintained.** It backed the [ha-resideo-firstalert](https://github.com/zackwag/ha-resideo-firstalert) Home Assistant integration, which I can no longer support after replacing my own First Alert smart alarms with non-smart ones and running into ongoing instability in Resideo's cloud API. The repo stays open for community PRs, reviewed on a best-effort basis.
+
 Async Python client for the Resideo First Alert smart smoke/CO detector API.
 
 Extracted from the [ha-resideo-firstalert](https://github.com/zackwag/ha-resideo-firstalert) Home Assistant integration so the API layer can be used independently.

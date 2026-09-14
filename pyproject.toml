@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyresideo-firstalert"
-version = "1.0.0"
-description = "Async Python client for the Resideo First Alert smart smoke/CO detector API"
+version = "1.0.1"
+description = "Async Python client for the Resideo First Alert smart smoke/CO detector API (unmaintained)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["resideo", "first-alert", "smoke-detector", "iot", "home-automation"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 7 - Inactive",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
