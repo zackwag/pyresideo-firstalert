@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Resideo First Alert API
-  version: 1.0.0
+  version: 1.0.2
   description: |
     Unofficial OpenAPI specification for the Resideo First Alert smart smoke/CO
     detector cloud API, reverse-engineered from the official First Alert mobile
@@ -27,8 +27,14 @@ info:
     name: MIT
 
 servers:
-  - url: https://api.resideo.com
-    description: Main Resideo API
+  - url: https://api.ha.resideo.com
+    description: |
+      Main Resideo API. Resideo retired the previous host, api.resideo.com, in
+      September 2026 and moved the consumer API here with no announcement; the old
+      host now answers every call with a permanent 503 "planned maintenance" body.
+      Paths are unchanged, but every call now requires an `Ocp-Apim-Subscription-Key`
+      header and a non-default `User-Agent` (see the `subscriptionKey` security
+      scheme below) or it 401s.
   - url: https://login.resideo.com
     description: Auth0 OAuth server
   - url: https://ds-notification-service.prod.titans.cloud
@@ -109,7 +115,10 @@ paths:
         is the plain-text hardware identifier used by other endpoints.
       operationId: getAccounts
       servers:
-        - url: https://api.resideo.com
+        - url: https://api.ha.resideo.com
+      security:
+        - bearerAuth: []
+          subscriptionKey: []
       responses:
         '200':
           description: Account information retrieved successfully
@@ -140,7 +149,10 @@ paths:
         - `tStampEpoch`: Unix epoch timestamp of the last state change
       operationId: getDeviceState
       servers:
-        - url: https://api.resideo.com
+        - url: https://api.ha.resideo.com
+      security:
+        - bearerAuth: []
+          subscriptionKey: []
       parameters:
         - name: deviceId
           in: path
@@ -177,7 +189,10 @@ paths:
         actual implementation uses GET with query parameters.
       operationId: getActivityFeed
       servers:
-        - url: https://api.resideo.com
+        - url: https://api.ha.resideo.com
+      security:
+        - bearerAuth: []
+          subscriptionKey: []
       parameters:
         - name: deviceId
           in: query
@@ -266,7 +281,10 @@ paths:
         features in the Resideo ecosystem.
       operationId: getGeofence
       servers:
-        - url: https://api.resideo.com
+        - url: https://api.ha.resideo.com
+      security:
+        - bearerAuth: []
+          subscriptionKey: []
       responses:
         '200':
           description: Geofence information retrieved
@@ -293,6 +311,20 @@ components:
         - Client ID: `SRmiA7CaYi1JgivDZdzzoZu4X5VBogGt` (public PKCE client)
         - Audience: `https://resideo-prod.auth0.com/api/v2/`
         - Scopes: `openid profile email offline_access`
+
+    subscriptionKey:
+      type: apiKey
+      in: header
+      name: Ocp-Apim-Subscription-Key
+      description: |
+        Azure API Management subscription key, required on every call to
+        `api.ha.resideo.com` alongside the bearer token (added when Resideo moved
+        the consumer API to this host in September 2026). The app sends this
+        unconditionally on both reads and writes. Requests to this host also need
+        a non-default `User-Agent`; the current app sends
+        `First Alert/2440 CFNetwork/3860.600.12 Darwin/25.5.0`, but the API does
+        not appear to validate the exact value, just that it isn't a bare HTTP
+        client default.
 
   schemas:
     RefreshTokenRequest:

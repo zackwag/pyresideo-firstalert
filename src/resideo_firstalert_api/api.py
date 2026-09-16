@@ -16,6 +16,8 @@ from resideo_firstalert_api.const import (
     API_ACTIVITY_FEED_URL,
     API_BASE_URL,
     API_DEVICE_STATE_ENDPOINT,
+    API_SUBSCRIPTION_KEY,
+    API_USER_AGENT,
     DEVICE_LIST_CACHE_SECONDS,
     OAUTH_CLIENT_ID,
     OAUTH_TOKEN_URL,
@@ -200,6 +202,9 @@ class ResideoApiClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # Both required on every api.ha.resideo.com call, not just writes - see const.py.
+            "Ocp-Apim-Subscription-Key": API_SUBSCRIPTION_KEY,
+            "User-Agent": API_USER_AGENT,
         }
 
         url = f"{API_BASE_URL}{endpoint}"
@@ -256,6 +261,8 @@ class ResideoApiClient:
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
+            "Ocp-Apim-Subscription-Key": API_SUBSCRIPTION_KEY,
+            "User-Agent": API_USER_AGENT,
         }
         params: dict[str, str] = {
             "PageSize": str(page_size),
