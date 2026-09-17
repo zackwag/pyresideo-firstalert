@@ -32,6 +32,17 @@ from .const import (
 from .signalr import SignalRClient
 
 __all__ = [
+    "ALARM_STATE_ALARM",
+    "ALARM_STATE_EOL_YES",
+    "ALARM_STATE_LOW",
+    "ALARM_STATE_NONE",
+    "ALARM_STATE_SILENCED",
+    "ALARM_STATE_TESTING",
+    "ALARM_STATE_UNKNOWN",
+    "BATTERY_STATE_MAP",
+    "CO_ALARM_STATES",
+    "POWER_STATE_MAP",
+    "SMOKE_ALARM_STATES",
     "AuthenticationError",
     "DeviceState",
     "Location",
@@ -45,15 +56,4 @@ __all__ = [
     "exchange_code_for_tokens",
     "generate_pkce_pair",
     "parse_authorization_code",
-    "ALARM_STATE_ALARM",
-    "ALARM_STATE_EOL_YES",
-    "ALARM_STATE_LOW",
-    "ALARM_STATE_NONE",
-    "ALARM_STATE_SILENCED",
-    "ALARM_STATE_TESTING",
-    "ALARM_STATE_UNKNOWN",
-    "BATTERY_STATE_MAP",
-    "CO_ALARM_STATES",
-    "POWER_STATE_MAP",
-    "SMOKE_ALARM_STATES",
 ]

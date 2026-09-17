@@ -64,9 +64,7 @@ class SignalRClient:
             except Exception:
                 if self._stopping:
                     break
-                _LOGGER.debug(
-                    "SignalR connection lost, reconnecting in 30s", exc_info=True
-                )
+                _LOGGER.debug("SignalR connection lost, reconnecting in 30s", exc_info=True)
                 await asyncio.sleep(30)
 
     async def _negotiate(self) -> str:
@@ -76,9 +74,7 @@ class SignalRClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        async with self._session.post(
-            SIGNALR_NEGOTIATE_URL, headers=headers
-        ) as resp:
+        async with self._session.post(SIGNALR_NEGOTIATE_URL, headers=headers) as resp:
             resp.raise_for_status()
             data = await resp.json()
 
@@ -86,9 +82,7 @@ class SignalRClient:
         if not connection_id:
             raise RuntimeError("No connectionId from SignalR negotiate")
 
-        ws_url = SIGNALR_HUB_URL.replace("https://", "wss://").replace(
-            "http://", "ws://"
-        )
+        ws_url = SIGNALR_HUB_URL.replace("https://", "wss://").replace("http://", "ws://")
         return f"{ws_url}?id={connection_id}"
 
     async def _connect_and_listen(self) -> None:
@@ -111,16 +105,12 @@ class SignalRClient:
             if handshake_msg is None:
                 raise RuntimeError("No handshake response from SignalR")
             if handshake_msg.get("error"):
-                raise RuntimeError(
-                    f"SignalR handshake error: {handshake_msg['error']}"
-                )
+                raise RuntimeError(f"SignalR handshake error: {handshake_msg['error']}")
             _LOGGER.debug("SignalR handshake complete")
 
             # Subscribe to device events
             if self._device_ids:
-                await self._invoke(
-                    "SubscribeSignalRV2", [self._device_ids]
-                )
+                await self._invoke("SubscribeSignalRV2", [self._device_ids])
                 _LOGGER.debug(
                     "Subscribed to SignalR events for %d devices",
                     len(self._device_ids),
@@ -176,9 +166,7 @@ class SignalRClient:
 
     async def _invoke(self, method: str, args: list[Any]) -> None:
         """Invoke a hub method."""
-        await self._send(
-            {"type": 1, "target": method, "arguments": args}
-        )
+        await self._send({"type": 1, "target": method, "arguments": args})
 
     async def _receive_one(self) -> dict[str, Any] | None:
         """Receive a single message (used during handshake)."""

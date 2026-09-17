@@ -43,9 +43,7 @@ def test_generate_pkce_challenge_is_s256_of_verifier() -> None:
     auth._generate_pkce()
 
     expected_digest = hashlib.sha256(auth._code_verifier.encode("ascii")).digest()
-    expected_challenge = (
-        base64.urlsafe_b64encode(expected_digest).decode("utf-8").rstrip("=")
-    )
+    expected_challenge = base64.urlsafe_b64encode(expected_digest).decode("utf-8").rstrip("=")
     assert auth._code_challenge == expected_challenge
 
 
@@ -155,10 +153,10 @@ async def test_step2_get_login_page_raises_when_no_csrf() -> None:
 async def test_step3_submit_credentials_extracts_wresult_and_wctx() -> None:
     auth = _make_auth()
     html_body = (
-        '<form>'
+        "<form>"
         '<input type="hidden" name="wresult" value="token_value_here" />'
         '<input type="hidden" name="wctx" value="context_value_here" />'
-        '</form>'
+        "</form>"
     )
 
     with aioresponses() as m:
@@ -316,9 +314,7 @@ def test_generate_pkce_pair_challenge_is_s256_of_verifier() -> None:
     verifier, challenge, _state = generate_pkce_pair()
 
     expected_digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    expected_challenge = (
-        base64.urlsafe_b64encode(expected_digest).decode("utf-8").rstrip("=")
-    )
+    expected_challenge = base64.urlsafe_b64encode(expected_digest).decode("utf-8").rstrip("=")
     assert challenge == expected_challenge
 
 
