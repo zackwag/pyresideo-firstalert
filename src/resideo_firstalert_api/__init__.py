@@ -8,7 +8,14 @@ from .api import (
     ResideoAuthError,
     ResideoConnectionError,
 )
-from .auth import AuthenticationError, ResideoAuth
+from .auth import (
+    AuthenticationError,
+    ResideoAuth,
+    build_authorize_url,
+    exchange_code_for_tokens,
+    generate_pkce_pair,
+    parse_authorization_code,
+)
 from .const import (
     ALARM_STATE_ALARM,
     ALARM_STATE_EOL_YES,
@@ -34,6 +41,10 @@ __all__ = [
     "ResideoAuthError",
     "ResideoConnectionError",
     "SignalRClient",
+    "build_authorize_url",
+    "exchange_code_for_tokens",
+    "generate_pkce_pair",
+    "parse_authorization_code",
     "ALARM_STATE_ALARM",
     "ALARM_STATE_EOL_YES",
     "ALARM_STATE_LOW",

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import re
 from unittest.mock import Mock
+from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 import pytest
@@ -16,10 +17,15 @@ from resideo_firstalert_api.auth import (
     AUTH0_BASE_URL,
     AUTH0_CALLBACK_URL,
     AUTH0_LOGIN_URL,
+    BROWSER_REDIRECT_URI,
     OAUTH_TOKEN_URL,
     REDIRECT_URI,
     AuthenticationError,
     ResideoAuth,
+    build_authorize_url,
+    exchange_code_for_tokens,
+    generate_pkce_pair,
+    parse_authorization_code,
 )
 
 
@@ -291,3 +297,129 @@ async def test_step6_exchange_code_raises_on_non_200(session: aiohttp.ClientSess
         m.post(OAUTH_TOKEN_URL, status=400, body="invalid_grant")
         with pytest.raises(AuthenticationError, match="Token exchange failed"):
             await auth._step6_exchange_code("bad_code")
+
+
+# ---------------------------------------------------------------------------
+# Browser-assisted flow: generate_pkce_pair / build_authorize_url
+# ---------------------------------------------------------------------------
+
+
+def test_generate_pkce_pair_verifier_is_valid_length_and_charset() -> None:
+    verifier, _challenge, _state = generate_pkce_pair()
+
+    # RFC 7636: code_verifier must be 43-128 characters, unreserved charset.
+    assert 43 <= len(verifier) <= 128
+    assert all(c not in "+/=" for c in verifier)
+
+
+def test_generate_pkce_pair_challenge_is_s256_of_verifier() -> None:
+    verifier, challenge, _state = generate_pkce_pair()
+
+    expected_digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    expected_challenge = (
+        base64.urlsafe_b64encode(expected_digest).decode("utf-8").rstrip("=")
+    )
+    assert challenge == expected_challenge
+
+
+def test_generate_pkce_pair_state_is_random_and_nonempty() -> None:
+    _v1, _c1, state1 = generate_pkce_pair()
+    _v2, _c2, state2 = generate_pkce_pair()
+
+    assert state1
+    assert state2
+    assert state1 != state2
+
+
+def test_build_authorize_url_includes_challenge_state_and_browser_redirect() -> None:
+    url = build_authorize_url("test_challenge", "test_state")
+
+    assert url.startswith(f"{AUTH0_AUTHORIZE_URL}?")
+    query = parse_qs(urlparse(url).query)
+    assert query["code_challenge"] == ["test_challenge"]
+    assert query["state"] == ["test_state"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["response_type"] == ["code"]
+    assert query["redirect_uri"] == [BROWSER_REDIRECT_URI]
+
+
+# ---------------------------------------------------------------------------
+# Browser-assisted flow: parse_authorization_code
+# ---------------------------------------------------------------------------
+
+
+def test_parse_authorization_code_from_bare_code() -> None:
+    assert parse_authorization_code("abc123") == "abc123"
+
+
+def test_parse_authorization_code_from_full_callback_url() -> None:
+    url = f"{BROWSER_REDIRECT_URI}?code=abc123&state=xyz"
+    assert parse_authorization_code(url, expected_state="xyz") == "abc123"
+
+
+def test_parse_authorization_code_from_bare_query_fragment() -> None:
+    assert parse_authorization_code("code=abc123&state=xyz", expected_state="xyz") == "abc123"
+
+
+def test_parse_authorization_code_raises_on_state_mismatch() -> None:
+    url = f"{BROWSER_REDIRECT_URI}?code=abc123&state=wrong"
+    with pytest.raises(AuthenticationError, match="State mismatch"):
+        parse_authorization_code(url, expected_state="xyz")
+
+
+def test_parse_authorization_code_raises_on_oauth_error() -> None:
+    url = f"{BROWSER_REDIRECT_URI}?error=access_denied&error_description=User+cancelled"
+    with pytest.raises(AuthenticationError, match="access_denied"):
+        parse_authorization_code(url)
+
+
+def test_parse_authorization_code_raises_on_empty_input() -> None:
+    with pytest.raises(AuthenticationError, match="No authorization code"):
+        parse_authorization_code("   ")
+
+
+def test_parse_authorization_code_raises_when_no_code_present() -> None:
+    url = f"{BROWSER_REDIRECT_URI}?state=xyz"
+    with pytest.raises(AuthenticationError, match="Could not find an authorization code"):
+        parse_authorization_code(url)
+
+
+# ---------------------------------------------------------------------------
+# Browser-assisted flow: exchange_code_for_tokens
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_for_tokens_returns_tokens(session: aiohttp.ClientSession) -> None:
+    token_response = {
+        "access_token": "access_123",
+        "refresh_token": "refresh_456",
+        "token_type": "Bearer",
+        "expires_in": 3600,
+    }
+
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, status=200, payload=token_response)
+        result = await exchange_code_for_tokens(session, "auth_code", "verifier")
+
+    assert result == token_response
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_for_tokens_raises_friendly_message_on_invalid_grant(
+    session: aiohttp.ClientSession,
+) -> None:
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, status=400, body="invalid_grant")
+        with pytest.raises(AuthenticationError, match="expired or"):
+            await exchange_code_for_tokens(session, "bad_code", "verifier")
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_for_tokens_raises_on_other_error(
+    session: aiohttp.ClientSession,
+) -> None:
+    with aioresponses() as m:
+        m.post(OAUTH_TOKEN_URL, status=500, body="server error")
+        with pytest.raises(AuthenticationError, match="Token exchange failed"):
+            await exchange_code_for_tokens(session, "bad_code", "verifier")

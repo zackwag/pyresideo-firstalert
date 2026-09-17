@@ -32,7 +32,41 @@ async with aiohttp.ClientSession() as session:
 
 ## Authentication
 
-To obtain a refresh token, use the `ResideoAuth` class:
+### Browser-assisted login (recommended)
+
+Resideo added a bot check (captcha) to its Auth0 login form, so the scripted
+`ResideoAuth.authenticate()` flow below no longer works — it fails with
+`invalid_captcha` even for correct credentials. A real browser passes the
+captcha invisibly, so the workaround is to have the user sign in themselves and
+hand the resulting authorization code back to your script:
+
+```python
+from resideo_firstalert_api import (
+    build_authorize_url,
+    exchange_code_for_tokens,
+    generate_pkce_pair,
+    parse_authorization_code,
+)
+
+code_verifier, code_challenge, state = generate_pkce_pair()
+print("Open this URL in a browser and sign in:")
+print(build_authorize_url(code_challenge, state))
+
+# After signing in, the browser lands on a page with the authorization code
+# in the address bar (e.g. "https://login.resideo.com/.../callback?code=...").
+# Paste that whole address, or just the code, back into your script.
+pasted = input("Paste the address bar URL or code: ")
+code = parse_authorization_code(pasted, expected_state=state)
+
+async with aiohttp.ClientSession() as session:
+    tokens = await exchange_code_for_tokens(session, code, code_verifier)
+    refresh_token = tokens["refresh_token"]
+```
+
+The authorization code is single-use and expires quickly, so exchange it
+promptly after the user pastes it back.
+
+### Email/password login (currently blocked by Resideo's captcha)
 
 ```python
 from resideo_firstalert_api import ResideoAuth
