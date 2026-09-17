@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/zackwag/pyresideo-firstalert/compare/v1.2.1...v1.3.0) (2026-09-17)
+
+
+### Features
+
+* **ci:** add ruff lint + format check ([#15](https://github.com/zackwag/pyresideo-firstalert/issues/15)) ([c336068](https://github.com/zackwag/pyresideo-firstalert/commit/c3360689f32d46302c31d6815d685507a558b36e))
+
 ## [1.2.1](https://github.com/zackwag/pyresideo-firstalert/compare/v1.2.0...v1.2.1) (2026-09-17)
 
 
