@@ -8,6 +8,7 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -26,3 +27,10 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v
+
+  Tests:
+    name: Tests
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All Python version matrix jobs passed."
