@@ -92,6 +92,10 @@ await client.start(device_ids=["device1", "device2"])
 
 The full API is documented in an [OpenAPI 3.1.0 spec](openapi.yaml) covering all endpoints, schemas, and alarm state enums.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and how this repo relates to [ha-resideo-firstalert](https://github.com/zackwag/ha-resideo-firstalert). Agents/AI contributors should also read [AGENTS.md](AGENTS.md).
+
 ## License
 
 MIT
