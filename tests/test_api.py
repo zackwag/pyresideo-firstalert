@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import aiohttp
 import pytest
 from aioresponses import aioresponses
+
 from resideo_firstalert_api.api import (
     ResideoApiClient,
     ResideoApiError,
@@ -305,9 +306,7 @@ async def test_parse_device_state_missing_field_defaults_to_safe_state(session) 
     client = ResideoApiClient(session, "refresh-token")
     device_info = {"device_id": "DEVICE1"}
 
-    state = client._parse_device_state(
-        _device_state_response(include_smoke_key=False), device_info
-    )
+    state = client._parse_device_state(_device_state_response(include_smoke_key=False), device_info)
 
     assert state.smoke_state == "unknown"
     assert state.smoke_state != ALARM_STATE_ALARM
@@ -340,9 +339,7 @@ async def test_get_all_device_states_skips_device_with_non_auth_error(
         m.post(OAUTH_TOKEN_URL, payload=_token_response())
         m.get(
             ACCOUNTS_URL,
-            payload=_accounts_response(
-                [_consumer_device("DEVICE1"), _consumer_device("DEVICE2")]
-            ),
+            payload=_accounts_response([_consumer_device("DEVICE1"), _consumer_device("DEVICE2")]),
         )
         m.get(_device_state_url("DEVICE1"), status=500, body="boom")
         m.get(_device_state_url("DEVICE2"), payload=_device_state_response(device_id="DEVICE2"))

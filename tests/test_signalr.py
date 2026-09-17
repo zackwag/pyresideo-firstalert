@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
+
 from resideo_firstalert_api.signalr import RECORD_SEPARATOR, SignalRClient
 
 
@@ -179,13 +180,15 @@ class TestNegotiate:
         """_negotiate should POST, parse connectionId, and build a wss:// URL."""
         resp_ctx = AsyncMock()
         resp_ctx.raise_for_status = MagicMock()
-        resp_ctx.json = AsyncMock(
-            return_value={"connectionId": "conn-42", "negotiateVersion": 1}
-        )
+        resp_ctx.json = AsyncMock(return_value={"connectionId": "conn-42", "negotiateVersion": 1})
 
         session = MagicMock(spec=aiohttp.ClientSession)
         # session.post is used as an async context manager
-        session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=resp_ctx), __aexit__=AsyncMock(return_value=False)))
+        session.post = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=resp_ctx), __aexit__=AsyncMock(return_value=False)
+            )
+        )
 
         client = _make_client(session=session, token="my-token")
         url = await client._negotiate()
@@ -205,7 +208,11 @@ class TestNegotiate:
         resp_ctx.json = AsyncMock(return_value={"negotiateVersion": 1})
 
         session = MagicMock(spec=aiohttp.ClientSession)
-        session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=resp_ctx), __aexit__=AsyncMock(return_value=False)))
+        session.post = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=resp_ctx), __aexit__=AsyncMock(return_value=False)
+            )
+        )
 
         client = _make_client(session=session)
 

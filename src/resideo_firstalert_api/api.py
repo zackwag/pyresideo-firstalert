@@ -134,20 +134,23 @@ class ResideoApiClient:
         self._lock = asyncio.Lock()
         self._on_refresh_token_updated = on_refresh_token_updated
         self._devices_cache: list[dict[str, Any]] | None = None
+        self._devices_cache_time: datetime | None = None
 
     @property
     def refresh_token(self) -> str:
         """Return the current refresh token (may have been rotated)."""
         return self._refresh_token
-        self._devices_cache_time: datetime | None = None
 
     async def _ensure_token(self) -> str:
         """Ensure we have a valid access token."""
         async with self._lock:
-            if self._access_token and self._token_expiry:
-                # Refresh if token expires in less than 5 minutes
-                if datetime.now() < self._token_expiry - timedelta(minutes=5):
-                    return self._access_token
+            # Refresh if token expires in less than 5 minutes
+            if (
+                self._access_token
+                and self._token_expiry
+                and datetime.now() < self._token_expiry - timedelta(minutes=5)
+            ):
+                return self._access_token
 
             # Refresh the token
             await self._refresh_access_token()
@@ -169,9 +172,7 @@ class ResideoApiClient:
                 if response.status in (401, 403):
                     raise ResideoAuthError("Invalid refresh token")
                 if response.status != 200:
-                    raise ResideoApiError(
-                        f"Token refresh failed with status {response.status}"
-                    )
+                    raise ResideoApiError(f"Token refresh failed with status {response.status}")
 
                 data = await response.json()
                 self._access_token = data["access_token"]
@@ -210,9 +211,7 @@ class ResideoApiClient:
         url = f"{API_BASE_URL}{endpoint}"
 
         try:
-            async with self._session.request(
-                method, url, headers=headers, **kwargs
-            ) as response:
+            async with self._session.request(method, url, headers=headers, **kwargs) as response:
                 if response.status == 401:
                     # Token might have expired, try refreshing once
                     await self._refresh_access_token()
@@ -325,13 +324,15 @@ class ResideoApiClient:
                 location_name = location.get("name")
                 for consumer_device in location.get("consumerDevices", []):
                     device = consumer_device.get("device", {})
-                    devices.append({
-                        "device_id": device.get("deviceId"),
-                        "name": consumer_device.get("name", device.get("deviceId")),
-                        "location": location_name,
-                        "device_type": device.get("globalDeviceType"),
-                        "consumer_device_id": consumer_device.get("id"),
-                    })
+                    devices.append(
+                        {
+                            "device_id": device.get("deviceId"),
+                            "name": consumer_device.get("name", device.get("deviceId")),
+                            "location": location_name,
+                            "device_type": device.get("globalDeviceType"),
+                            "consumer_device_id": consumer_device.get("id"),
+                        }
+                    )
 
         self._devices_cache = devices
         self._devices_cache_time = datetime.now()
@@ -353,9 +354,7 @@ class ResideoApiClient:
             except ResideoAuthError:
                 raise
             except ResideoApiError as err:
-                _LOGGER.warning(
-                    "Failed to get state for device %s: %s", device_id, err
-                )
+                _LOGGER.warning("Failed to get state for device %s: %s", device_id, err)
 
         return states
 

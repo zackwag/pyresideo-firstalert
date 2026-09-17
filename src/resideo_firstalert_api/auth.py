@@ -249,9 +249,7 @@ class ResideoAuth:
 
             return auth0_state
 
-    async def _step2_get_login_page(
-        self, session: aiohttp.ClientSession, auth0_state: str
-    ) -> str:
+    async def _step2_get_login_page(self, session: aiohttp.ClientSession, auth0_state: str) -> str:
         """Get the login page and extract CSRF token."""
         login_url = f"{AUTH0_BASE_URL}/login"
         params = {"state": auth0_state}
@@ -347,9 +345,7 @@ class ResideoAuth:
 
             return wresult, wctx
 
-    async def _step4_callback(
-        self, session: aiohttp.ClientSession, wresult: str, wctx: str
-    ) -> str:
+    async def _step4_callback(self, session: aiohttp.ClientSession, wresult: str, wctx: str) -> str:
         """Post to callback, return resume URL."""
         # Use simple dict for form data
         form_data = {
@@ -365,7 +361,9 @@ class ResideoAuth:
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
         }
 
-        _LOGGER.debug("Step 4: wresult length=%d, wctx length=%d", len(wresult), len(wctx) if wctx else 0)
+        _LOGGER.debug(
+            "Step 4: wresult length=%d, wctx length=%d", len(wresult), len(wctx) if wctx else 0
+        )
 
         async with session.post(
             AUTH0_CALLBACK_URL,

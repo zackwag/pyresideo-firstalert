@@ -35,6 +35,17 @@ Issues = "https://github.com/zackwag/pyresideo-firstalert/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/resideo_firstalert_api"]
 
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# DTZ005 (datetime.now() without tz): this codebase never mixes naive and
+# timezone-aware datetimes -- every datetime.now() call is only ever
+# compared against another datetime.now() call (token-expiry / cache
+# staleness tracking). Flagging all ~20 call sites for a hypothetical
+# future mixing risk that doesn't exist today isn't worth the churn.
+ignore = ["DTZ005"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

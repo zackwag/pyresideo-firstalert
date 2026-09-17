@@ -40,23 +40,27 @@ ALARM_STATE_EOL_YES = "yes"
 ALARM_STATE_TESTING = "testing"
 
 # All smoke/CO deviceState values that indicate an active alarm condition.
-SMOKE_ALARM_STATES = frozenset({
-    "alarm",
-    "smokeAlarm",
-    "smokeEarlyWarning",
-    "smokeInterconnectAlarm",
-    "smokeEarlyWarningInterconnectAlarm",
-})
+SMOKE_ALARM_STATES = frozenset(
+    {
+        "alarm",
+        "smokeAlarm",
+        "smokeEarlyWarning",
+        "smokeInterconnectAlarm",
+        "smokeEarlyWarningInterconnectAlarm",
+    }
+)
 
-CO_ALARM_STATES = frozenset({
-    "alarm",
-    "coAlarm",
-    "coEarlyWarning",
-    "carbonMonoxideAlarm",
-    "carbonMonoxideEarlyWarning",
-    "carbonMonoxideInterconnectAlarm",
-    "carbonMonoxideEarlyWarningInterconnectAlarm",
-})
+CO_ALARM_STATES = frozenset(
+    {
+        "alarm",
+        "coAlarm",
+        "coEarlyWarning",
+        "carbonMonoxideAlarm",
+        "carbonMonoxideEarlyWarning",
+        "carbonMonoxideInterconnectAlarm",
+        "carbonMonoxideEarlyWarningInterconnectAlarm",
+    }
+)
 
 # The API reports transitional power states during AC/DC switchovers.
 POWER_STATE_MAP: dict[str, str] = {
