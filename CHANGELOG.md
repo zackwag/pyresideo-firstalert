@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2](https://github.com/zackwag/pyresideo-firstalert/compare/v1.3.1...v1.3.2) (2026-11-11)
+
+
+### Miscellaneous Chores
+
+* fix dependabot commit-message prefixes for conventional commits ([#26](https://github.com/zackwag/pyresideo-firstalert/issues/26)) ([5d83795](https://github.com/zackwag/pyresideo-firstalert/commit/5d83795438bb536a2ca9e24bb140a30b3b2a5426))
+* update pytest-asyncio requirement from &gt;=1.4.1 to &gt;=1.4.1.post1 ([#25](https://github.com/zackwag/pyresideo-firstalert/issues/25)) ([a8033f9](https://github.com/zackwag/pyresideo-firstalert/commit/a8033f93148e4390e4e87d67e53e2821efad8557))
+
 ## [1.3.1](https://github.com/zackwag/pyresideo-firstalert/compare/v1.3.0...v1.3.1) (2026-11-04)
 
 
