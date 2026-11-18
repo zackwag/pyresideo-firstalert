@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.3](https://github.com/zackwag/pyresideo-firstalert/compare/v1.3.2...v1.3.3) (2026-11-18)
+
+
+### Miscellaneous Chores
+
+* **deps:** update pytest-asyncio requirement ([f44d632](https://github.com/zackwag/pyresideo-firstalert/commit/f44d63287a57dc575911ff2f9326a9c16c14ed80))
+* **deps:** update pytest-asyncio requirement from &gt;=1.4.1.post1 to &gt;=1.5.0 ([#28](https://github.com/zackwag/pyresideo-firstalert/issues/28)) ([f44d632](https://github.com/zackwag/pyresideo-firstalert/commit/f44d63287a57dc575911ff2f9326a9c16c14ed80))
+
 ## [1.3.2](https://github.com/zackwag/pyresideo-firstalert/compare/v1.3.1...v1.3.2) (2026-11-11)
 
 
